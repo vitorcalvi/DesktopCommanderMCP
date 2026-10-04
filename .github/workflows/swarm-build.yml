@@ -32,7 +32,8 @@ jobs:
           - lane: compile
             command: npm run build
           - lane: tools-sync
-            command: npm run validate:tools
+            command: >-
+              node -e "const fs=require('fs'); const p=require('./package.json'); fs.mkdirSync('mcpb-bundle',{recursive:true}); fs.writeFileSync('mcpb-bundle/manifest.json',fs.readFileSync('manifest.template.json','utf8').replace('{{VERSION}}',p.version));" && npm run validate:tools
           - lane: unit-tests
             command: npm test
           - lane: gateway-syntax
