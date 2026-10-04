@@ -1,0 +1,131 @@
+name: Swarm Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "docker/dokploy/**"
+      - ".github/workflows/swarm-build.yml"
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+
+concurrency:
+  group: desktop-commander-swarm-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  validation-swarm:
+    name: swarm / ${{ matrix.lane }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - lane: compile
+            command: npm run build
+          - lane: tools-sync
+            command: npm run validate:tools
+          - lane: unit-tests
+            command: npm test
+          - lane: gateway-syntax
+            command: node --check docker/dokploy/auth-proxy.mjs && bash -n docker/dokploy/entrypoint.sh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run lane
+        run: ${{ matrix.command }}
+
+  container-smoke:
+    name: container / MCP smoke
+    needs: validation-swarm
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -f docker/dokploy/Dockerfile -t desktop-commander-mcp:smoke .
+      - name: Start isolated smoke container
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(openssl rand -hex 32)"
+          printf '%s' "$token" > "$RUNNER_TEMP/operator-token"
+          docker run -d --name desktop-commander-smoke \
+            -e CF_ACCESS_ENABLED=0 \
+            -e DESKTOP_COMMANDER_OPERATOR_TOKEN="$token" \
+            -p 127.0.0.1:18766:8766 \
+            desktop-commander-mcp:smoke
+      - name: Wait for health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:18766/healthz >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs desktop-commander-smoke
+          exit 1
+      - name: Initialize MCP end-to-end
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(cat "$RUNNER_TEMP/operator-token")"
+          headers="$RUNNER_TEMP/mcp-headers"
+          body="$RUNNER_TEMP/mcp-body"
+          curl -fsS -D "$headers" -o "$body" \
+            -H "Authorization: Bearer $token" \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"github-actions","version":"1"}}}' \
+            http://127.0.0.1:18766/desktop-commander/mcp
+          node -e 'const fs=require("fs"); const s=fs.readFileSync(process.argv[1],"utf8"); const line=s.split(/\n/).find(x=>x.startsWith("data:")); const raw=line?line.slice(5).trim():s; const j=JSON.parse(raw); if(!j.result?.serverInfo) { console.error(s); process.exit(1); } console.log(JSON.stringify(j.result.serverInfo));' "$body"
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs desktop-commander-smoke || true
+      - name: Cleanup
+        if: always()
+        run: docker rm -f desktop-commander-smoke >/dev/null 2>&1 || true
+
+  publish-image:
+    name: publish / GHCR
+    needs: container-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/dokploy/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/desktop-commander-mcp:latest
+            ghcr.io/${{ github.repository_owner }}/desktop-commander-mcp:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
