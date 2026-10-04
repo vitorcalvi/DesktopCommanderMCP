@@ -1,0 +1,41 @@
+services:
+  desktop-commander-mcp:
+    image: ghcr.io/vitorcalvi/desktop-commander-mcp:latest
+    pull_policy: always
+    restart: unless-stopped
+    init: true
+    environment:
+      CF_ACCESS_ENABLED: "${CF_ACCESS_ENABLED:-1}"
+      CF_ACCESS_TEAM_DOMAIN: "${CF_ACCESS_TEAM_DOMAIN}"
+      CF_ACCESS_AUD: "${CF_ACCESS_AUD}"
+      CF_ACCESS_ALLOWED_EMAILS: "${CF_ACCESS_ALLOWED_EMAILS:-}"
+      DESKTOP_COMMANDER_OPERATOR_TOKEN: "${DESKTOP_COMMANDER_OPERATOR_TOKEN}"
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-https://agent-dispatch.dyagnosys.com/desktop-commander}"
+      MCP_PUBLIC_PATH: "/desktop-commander/mcp"
+      SUPERGATEWAY_LOG_LEVEL: "${SUPERGATEWAY_LOG_LEVEL:-info}"
+      MCP_SESSION_TIMEOUT_MS: "${MCP_SESSION_TIMEOUT_MS:-86400000}"
+    volumes:
+      - desktop-commander-config:/data
+      - desktop-commander-workspace:/workspace
+      - /home/vitor:/host-home
+      - /etc/dokploy:/dokploy:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - 127.0.0.1:8766:8766
+    cpus: "1.5"
+    mem_limit: 2g
+    mem_reservation: 512m
+    pids_limit: 2048
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+
+volumes:
+  desktop-commander-config:
+    name: desktop-commander-config
+  desktop-commander-workspace:
+    name: desktop-commander-workspace
