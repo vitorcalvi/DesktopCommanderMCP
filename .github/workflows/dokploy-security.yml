@@ -1,0 +1,25 @@
+name: Dokploy security regression
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  hardened-defaults:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check docker/dokploy/auth-proxy.mjs
+      - run: bash -n docker/dokploy/entrypoint.sh
+      - name: Verify secure defaults
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'USER node' docker/dokploy/Dockerfile
+          grep -q 'Cloudflare Access email allowlist is required' docker/dokploy/auth-proxy.mjs
+          ! grep -q '/var/run/docker.sock:/var/run/docker.sock' docker/dokploy/docker-compose.yml
+          ! grep -q '/home/vitor:/host-home' docker/dokploy/docker-compose.yml
+          ! grep -q '/etc/dokploy:/dokploy' docker/dokploy/docker-compose.yml
+          grep -q 'DESKTOP_COMMANDER_ALLOWED_DIRECTORIES' docker/dokploy/entrypoint.sh
