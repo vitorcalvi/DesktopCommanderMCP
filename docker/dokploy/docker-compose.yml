@@ -17,9 +17,6 @@ services:
     volumes:
       - desktop-commander-config:/data
       - desktop-commander-workspace:/workspace
-      - /home/vitor:/host-home
-      - /etc/dokploy:/dokploy:ro
-      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - 127.0.0.1:8766:8766
     cpus: "1.5"
