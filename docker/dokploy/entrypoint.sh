@@ -31,7 +31,7 @@ if (!directories.length || directories.some((dir) => !dir.startsWith('/'))) {
   throw new Error('DESKTOP_COMMANDER_ALLOWED_DIRECTORIES must contain absolute paths');
 }
 config.allowedDirectories = directories;
-fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\\n', { mode: 0o600 });
+fs.writeFileSync(file, JSON.stringify(config, null, 2) + String.fromCharCode(10), { mode: 0o600 });
 NODE
 cleanup() {
   local code=$?
