@@ -9,7 +9,7 @@ mkdir -p "$CONFIG_DIR" /workspace
 if [[ ! -f "$CONFIG_FILE" ]]; then
   cat > "$CONFIG_FILE" <<'JSON'
 {
-  "allowedDirectories": ["/workspace", "/host-home", "/dokploy"],
+  "allowedDirectories": ["/workspace"],
   "telemetryEnabled": false,
   "fileReadLineLimit": 1000,
   "fileWriteLineLimit": 200
@@ -18,6 +18,21 @@ JSON
   chmod 600 "$CONFIG_FILE"
 fi
 
+# Apply a restrictive runtime directory allowlist even when /data is a
+# persistent volume containing configuration from an earlier deployment.
+# Additional mounts are never implicitly trusted.
+node - "$CONFIG_FILE" <<'NODE'
+const fs = require('fs');
+const file = process.argv[2];
+const config = JSON.parse(fs.readFileSync(file, 'utf8'));
+const directories = (process.env.DESKTOP_COMMANDER_ALLOWED_DIRECTORIES || '/workspace')
+  .split(',').map((value) => value.trim()).filter(Boolean);
+if (!directories.length || directories.some((dir) => !dir.startsWith('/'))) {
+  throw new Error('DESKTOP_COMMANDER_ALLOWED_DIRECTORIES must contain absolute paths');
+}
+config.allowedDirectories = directories;
+fs.writeFileSync(file, JSON.stringify(config, null, 2) + String.fromCharCode(10), { mode: 0o600 });
+NODE
 cleanup() {
   local code=$?
   if [[ -n "${SUPERGATEWAY_PID:-}" ]] && kill -0 "$SUPERGATEWAY_PID" 2>/dev/null; then

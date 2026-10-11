@@ -129,6 +129,7 @@ async function authenticate(req) {
   }
 
   if (!CF_ACCESS_ENABLED) throw new Error('Cloudflare Access validation disabled and no valid operator token supplied');
+  if (CF_ACCESS_ALLOWED_EMAILS.size === 0) throw new Error('Cloudflare Access email allowlist is required');
   const assertion = String(req.headers['cf-access-jwt-assertion'] || '');
   if (!assertion) throw new Error('Cloudflare Access assertion missing');
   const identity = await validateCloudflareJwt(assertion);
